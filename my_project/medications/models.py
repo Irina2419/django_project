@@ -1,6 +1,7 @@
 # medications/models.py
 
 from django.db import models
+from django.db.models import Q # Keep this import if you used it in reconciliation
 
 # --- 1. Chemical_Composition Table ---
 class ChemicalComposition(models.Model):
@@ -17,16 +18,16 @@ class ChemicalComposition(models.Model):
 # --- 2. BNF_Hierarchy Table ---
 class BNFHierarchy(models.Model):
     bnf_code_15digit = models.CharField(max_length=15, primary_key=True)
-    bnf_chapter_code = models.CharField(max_length=2, blank=True, null=True) # Make nullable for flexibility
-    bnf_chapter_name = models.CharField(max_length=255, blank=True, null=True) # Make nullable
-    bnf_section_code = models.CharField(max_length=5, blank=True, null=True) # Make nullable
-    bnf_section_name = models.CharField(max_length=255, blank=True, null=True) # Make nullable
-    bnf_paragraph_code = models.CharField(max_length=7, blank=True, null=True) # Make nullable
-    bnf_paragraph_name = models.CharField(max_length=255, blank=True, null=True) # Make nullable
-    bnf_chemical_substance = models.CharField(max_length=255, blank=True, null=True) # Make nullable
-    bnf_presentation_description = models.CharField(max_length=500, blank=True, null=True) # Make nullable
-    bnf_version = models.CharField(max_length=50, blank=True, null=True) # Make nullable
-    valid_from_date = models.DateField(blank=True, null=True) # Make nullable
+    bnf_chapter_code = models.CharField(max_length=2, blank=True, null=True)
+    bnf_chapter_name = models.CharField(max_length=255, blank=True, null=True)
+    bnf_section_code = models.CharField(max_length=5, blank=True, null=True)
+    bnf_section_name = models.CharField(max_length=255, blank=True, null=True)
+    bnf_paragraph_code = models.CharField(max_length=7, blank=True, null=True)
+    bnf_paragraph_name = models.CharField(max_length=255, blank=True, null=True)
+    bnf_chemical_substance = models.CharField(max_length=255, blank=True, null=True)
+    bnf_presentation_description = models.CharField(max_length=500, blank=True, null=True)
+    bnf_version = models.CharField(max_length=50, blank=True, null=True)
+    valid_from_date = models.DateField(blank=True, null=True)
     valid_to_date = models.DateField(blank=True, null=True)
 
     class Meta:
@@ -35,6 +36,19 @@ class BNFHierarchy(models.Model):
 
     def __str__(self):
         return f"{self.bnf_code_15digit} - {self.bnf_presentation_description or 'No Description'}"
+
+    # --- ADD THIS PROPERTY FOR BNF_Full_Classification ---
+    @property
+    def full_classification(self):
+        parts = []
+        if self.bnf_chapter_name:
+            parts.append(self.bnf_chapter_name)
+        if self.bnf_section_name:
+            parts.append(self.bnf_section_name)
+        if self.bnf_paragraph_name:
+            parts.append(self.bnf_paragraph_name)
+        return " > ".join(parts) if parts else "N/A"
+
 
 # --- 3. Medication_Products Table (Core Entity) ---
 class MedicationProduct(models.Model):
@@ -55,25 +69,34 @@ class MedicationProduct(models.Model):
         blank=True, null=True
     )
     latest_average_price_gbp = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    cost_effectiveness_status = models.CharField(max_length=100, null=True, blank=True)
+    # cost_effectiveness_status = models.CharField(max_length=100, null=True, blank=True) # <--- REMOVE THIS LINE
 
     class Meta:
         verbose_name = "Medication Product"
         verbose_name_plural = "Medication Products"
 
     def __str__(self):
-        # Make __str__ more robust to avoid errors if fields are None
         if self.product_name:
             return self.product_name
         elif self.npc_code:
             return f"Product (NPC: {self.npc_code})"
-        elif self.bnf_code_15digit_id: # Check if BNF is linked by its ID
+        elif self.bnf_code_15digit_id:
             return f"Product (BNF: {self.bnf_code_15digit_id})"
-        return f"Product ID: {self.id}" # Fallback to Django's auto-generated ID
+        return f"Product ID: {self.id}"
+
+    # --- Add property for Annual_Usage_Estimate_Items (derived from pricing history) ---
+    @property
+    def annual_usage_estimate_items(self):
+        # This will sum usage_estimate from all eMIT pricing records for this product
+        # You might want to refine this to only sum for a specific year/period
+        total_usage = self.pricing_history.filter(source='eMIT Hospital Data').aggregate(
+            total_items=models.Sum('usage_estimate')
+        )['total_items']
+        return total_usage if total_usage is not None else 0
+
 
 # --- 4. Medication_Pricing_History Table ---
 class MedicationPricingHistory(models.Model):
-    # PriceRecordID (Primary Key - Django automatically creates 'id' as PK by default)
     product = models.ForeignKey(
         MedicationProduct,
         on_delete=models.CASCADE,
@@ -84,7 +107,6 @@ class MedicationPricingHistory(models.Model):
     period_start = models.DateField()
     period_end = models.DateField()
     usage_estimate = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
-    # --- INCREASED max_digits for price_change_measure ---
     price_change_measure = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True)
 
     class Meta:
@@ -93,27 +115,6 @@ class MedicationPricingHistory(models.Model):
         ordering = ['-period_start']
 
     def __str__(self):
-        return f"Price for {self.product.product_name} from {self.source} ({self.period_start} to {self.period_end}): £{self.price_gbp}"
+        return f"Price for {self.product.product_name if self.product.product_name else self.product.npc_code} from {self.source} ({self.period_start} to {self.period_end}): £{self.price_gbp}"
 
-# --- 5. Cost_Effectiveness_Appraisals Table ---
-class CostEffectivenessAppraisal(models.Model):
-    # AppraisalID (Primary Key - Django automatically creates 'id' as PK by default)
-    product = models.ForeignKey(
-        MedicationProduct,
-        on_delete=models.CASCADE, # If product is deleted, delete its appraisals
-        related_name='cost_effectiveness_appraisals'
-    )
-    nice_guidance_id = models.CharField(max_length=100, blank=True, null=True) # e.g., 'TA312'
-    recommendation_status = models.CharField(max_length=100) # e.g., 'Recommended', 'Not Recommended'
-    icer_gbp_per_qaly = models.DecimalField(max_digits=15, decimal_places=2, null=True, blank=True) # Increased max_digits for ICER
-    appraisal_date = models.DateField()
-    summary_of_findings = models.TextField(blank=True, null=True)
-    rationale_for_decision = models.TextField(blank=True, null=True)
-
-    class Meta:
-        verbose_name = "Cost Effectiveness Appraisal"
-        verbose_name_plural = "Cost Effectiveness Appraisals"
-        ordering = ['-appraisal_date'] # Order by most recent appraisal first
-
-    def __str__(self):
-        return f"Appraisal for {self.product.product_name}: {self.recommendation_status} ({self.appraisal_date})"
+# --- CostEffectivenessAppraisal Table is REMOVED ---

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UK Medication Insights</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        h1 { color: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background-color: #fff; box-shadow: 0 2px 3px rgba(0,0,0,0.1); }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #e9e9e9; font-weight: bold; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #f1f1f1; }
+        .container { max-width: 1200px; margin: auto; padding: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>UK Medication Insights Dashboard</h1>
+
+        <h2>Medication Products ({{ medications|length }} items)</h2>
+
+        {% if medications %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Product Name</th>
+                    <th>NPC Code</th>
+                    <th>BNF Code (15-Digit)</th>
+                    <th>BNF Chemical</th>
+                    <th>BNF Full Classification</th>
+                    <th>Latest Price (GBP)</th>
+                    <th>Source</th>
+                    <th>Annual Usage (Items)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for med in medications %}
+                <tr>
+                    <td>{{ med.product_name|default:"N/A" }}</td>
+                    <td>{{ med.npc_code|default:"N/A" }}</td>
+                    <td>{{ med.bnf_code_15digit|default:"N/A" }}</td>
+                    <td>{{ med.bnf_chemical_substance|default:"N/A" }}</td>
+                    <td>{{ med.bnf_full_classification|default:"N/A" }}</td>
+                    <td>{{ med.latest_average_price_gbp|default:"N/A" }}</td>
+                    <td>{{ med.price_source|default:"N/A" }}</td>
+                    <td>{{ med.annual_usage_estimate_items|default:"N/A" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No medication data available. Please run import scripts.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
